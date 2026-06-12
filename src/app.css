@@ -178,3 +178,13 @@ button,
   background: var(--bad);
   color: #2a0707;
 }
+.archived-banner {
+  border-color: var(--accent);
+  background: var(--card-2);
+}
+.archived-expense {
+  opacity: 0.55;
+}
+.archived-expense .amt {
+  text-decoration: line-through;
+}

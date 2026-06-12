@@ -6,7 +6,7 @@ import { ensureUser } from '$lib/server/session.js';
 import { loadGroupState } from '$lib/server/groups.js';
 
 export async function load({ locals, url }) {
-  if (!locals.user) return { groups: [], loginUrl: null };
+  if (!locals.user) return { groups: [], archivedGroups: [], loginUrl: null };
 
   // Active memberships only (not soft-left).
   const memberships = await db.query.members.findMany({
@@ -14,22 +14,30 @@ export async function load({ locals, url }) {
   });
 
   const groups = [];
+  const archivedGroups = [];
   for (const m of memberships) {
     const group = await db.query.groups.findFirst({
       where: eq(schema.groups.id, m.groupId)
     });
     if (!group) continue;
     const { members, balances } = await loadGroupState(group.id);
-    groups.push({
+    const row = {
       id: group.id,
       name: group.name,
       memberCount: members.filter((x) => !x.leftAt).length,
       myBalanceCents: balances.get(m.id) ?? 0
-    });
+    };
+    // Archived groups stay visible, just reprioritized into their own section.
+    (group.archivedAt ? archivedGroups : groups).push(row);
   }
   groups.sort((a, b) => a.name.localeCompare(b.name));
+  archivedGroups.sort((a, b) => a.name.localeCompare(b.name));
 
-  return { groups, loginUrl: `${url.origin}/login/${locals.user.loginToken}` };
+  return {
+    groups,
+    archivedGroups,
+    loginUrl: `${url.origin}/login/${locals.user.loginToken}`
+  };
 }
 
 export const actions = {

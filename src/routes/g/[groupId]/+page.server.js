@@ -25,6 +25,18 @@ async function requireMember(locals, groupId) {
   return member;
 }
 
+// Archived groups are read-only: data is preserved, but no new changes until
+// the group is restored. Returns a fail() to short-circuit the action, or null.
+async function archivedGuard(groupId, errorKey) {
+  const group = await db.query.groups.findFirst({
+    where: eq(schema.groups.id, groupId)
+  });
+  if (group?.archivedAt) {
+    return fail(400, { [errorKey]: 'This group is archived — restore it to make changes.' });
+  }
+  return null;
+}
+
 export async function load({ params, locals, url }) {
   const me = await requireMember(locals, params.groupId);
   const group = await db.query.groups.findFirst({
@@ -47,7 +59,7 @@ export async function load({ params, locals, url }) {
 
   return {
     me: { id: me.id, name: me.name },
-    group: { id: group.id, name: group.name },
+    group: { id: group.id, name: group.name, archived: !!group.archivedAt },
     inviteUrl: `${url.origin}/join/${group.inviteToken}`,
     activeMembers: active.map((m) => ({ id: m.id, name: m.name, claimed: !!m.userId })),
     settleMembers: settleable.map((m) => ({ id: m.id, name: m.name, left: !!m.leftAt })),
@@ -57,12 +69,17 @@ export async function load({ params, locals, url }) {
       left: !!m.leftAt,
       cents: balances.get(m.id) ?? 0
     })),
-    expenses: expenses.map((e) => ({
-      id: e.id,
-      description: e.description,
-      amountCents: e.amountCents,
-      paidByName: nameById.get(e.paidById)
-    })),
+    // Live expenses first, archived ones reprioritized to the bottom — kept
+    // visible, just no longer counted.
+    expenses: expenses
+      .map((e) => ({
+        id: e.id,
+        description: e.description,
+        amountCents: e.amountCents,
+        paidByName: nameById.get(e.paidById),
+        archived: !!e.archivedAt
+      }))
+      .sort((a, b) => Number(a.archived) - Number(b.archived)),
     settlements: settlements.map((s) => ({
       id: s.id,
       amountCents: s.amountCents,
@@ -83,6 +100,8 @@ async function activeMemberIds(groupId) {
 export const actions = {
   addMember: async ({ request, params, locals }) => {
     await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'memberError');
+    if (blocked) return blocked;
     const form = await request.formData();
     const name = String(form.get('name') ?? '').trim();
     if (!name) return fail(400, { memberError: 'Enter a name.' });
@@ -93,6 +112,8 @@ export const actions = {
 
   addExpense: async ({ request, params, locals }) => {
     await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'addError');
+    if (blocked) return blocked;
     const form = await request.formData();
     const description = String(form.get('description') ?? '').trim();
     const amountCents = parseCents(form.get('amount'));
@@ -128,6 +149,8 @@ export const actions = {
 
   settle: async ({ request, params, locals }) => {
     await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'settleError');
+    if (blocked) return blocked;
     const form = await request.formData();
     const fromId = String(form.get('fromId') ?? '');
     const toId = String(form.get('toId') ?? '');
@@ -153,14 +176,31 @@ export const actions = {
     return { settled: true };
   },
 
-  deleteExpense: async ({ request, params, locals }) => {
+  archiveExpense: async ({ request, params, locals }) => {
     await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'addError');
+    if (blocked) return blocked;
+    const form = await request.formData();
+    const expenseId = String(form.get('expenseId') ?? '');
+    // Soft-archive: the expense and its shares stay, they just stop counting.
+    await db
+      .update(schema.expenses)
+      .set({ archivedAt: new Date() })
+      .where(and(eq(schema.expenses.id, expenseId), eq(schema.expenses.groupId, params.groupId)));
+    return { expenseArchived: true };
+  },
+
+  restoreExpense: async ({ request, params, locals }) => {
+    await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'addError');
+    if (blocked) return blocked;
     const form = await request.formData();
     const expenseId = String(form.get('expenseId') ?? '');
     await db
-      .delete(schema.expenses)
+      .update(schema.expenses)
+      .set({ archivedAt: null })
       .where(and(eq(schema.expenses.id, expenseId), eq(schema.expenses.groupId, params.groupId)));
-    return { deleted: true };
+    return { expenseRestored: true };
   },
 
   leaveGroup: async ({ params, locals }) => {
@@ -173,21 +213,23 @@ export const actions = {
     throw redirect(303, '/');
   },
 
-  deleteGroup: async ({ request, params, locals }) => {
+  archiveGroup: async ({ params, locals }) => {
     await requireMember(locals, params.groupId);
-    const form = await request.formData();
-    const confirmName = String(form.get('confirmName') ?? '').trim();
-
-    const group = await db.query.groups.findFirst({
-      where: eq(schema.groups.id, params.groupId)
-    });
-    if (!group) throw redirect(303, '/');
-    if (confirmName !== group.name) {
-      return fail(400, { deleteError: `Type the group name exactly ("${group.name}") to confirm.` });
-    }
-
-    // FK cascades on group_id remove members, expenses, shares and settlements.
-    await db.delete(schema.groups).where(eq(schema.groups.id, params.groupId));
+    // Soft-archive: keep every row, just stamp archivedAt. Nothing is lost —
+    // the group drops out of active lists and becomes read-only until restored.
+    await db
+      .update(schema.groups)
+      .set({ archivedAt: new Date() })
+      .where(and(eq(schema.groups.id, params.groupId), isNull(schema.groups.archivedAt)));
     throw redirect(303, '/');
+  },
+
+  restoreGroup: async ({ params, locals }) => {
+    await requireMember(locals, params.groupId);
+    await db
+      .update(schema.groups)
+      .set({ archivedAt: null })
+      .where(eq(schema.groups.id, params.groupId));
+    return { restored: true };
   }
 };

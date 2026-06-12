@@ -14,6 +14,15 @@
 <h1>{data.group.name}</h1>
 <p class="muted">Signed in as {data.me.name} · <a href="/">all groups</a></p>
 
+{#if data.group.archived}
+  <div class="card archived-banner">
+    <p style="margin:0;">
+      <strong>This group is archived.</strong> Everything is preserved and read-only.
+      Restore it below to add expenses or payments again.
+    </p>
+  </div>
+{/if}
+
 <h2>Balances</h2>
 <div class="card">
   {#each data.balances as b}
@@ -41,6 +50,7 @@
   {/if}
 </div>
 
+{#if !data.group.archived}
 <h2>Add expense</h2>
 <form class="card" method="POST" action="?/addExpense" use:enhance>
   <label for="description">Description</label>
@@ -90,6 +100,7 @@
   {#if form?.settleError}<p class="error">{form.settleError}</p>{/if}
   <button type="submit">Record payment</button>
 </form>
+{/if}
 
 <h2>People</h2>
 <div class="card">
@@ -100,12 +111,14 @@
     </div>
   {/each}
 </div>
+{#if !data.group.archived}
 <form class="card" method="POST" action="?/addMember" use:enhance>
   <label for="memberName">Add a housemate (they can claim their name later via the invite link)</label>
   <input id="memberName" name="name" placeholder="Sam" autocomplete="off" />
   {#if form?.memberError}<p class="error">{form.memberError}</p>{/if}
   <button type="submit" class="btn-ghost">Add housemate</button>
 </form>
+{/if}
 
 <h2>Expenses</h2>
 <div class="card">
@@ -113,19 +126,33 @@
     <p class="muted">No expenses yet.</p>
   {:else}
     {#each data.expenses as e}
-      <div class="row">
-        <span>{e.description}<br /><span class="muted">paid by {e.paidByName}</span></span>
+      <div class="row" class:archived-expense={e.archived}>
+        <span>{e.description}{e.archived ? ' (archived)' : ''}<br /><span class="muted">paid by {e.paidByName}</span></span>
         <span style="display:flex; align-items:center; gap:12px;">
           <span class="amt">{money(e.amountCents)}</span>
-          <form method="POST" action="?/deleteExpense" use:enhance>
-            <input type="hidden" name="expenseId" value={e.id} />
-            <button
-              type="submit"
-              title="Delete"
-              style="width:auto; margin:0; padding:6px 10px; background:transparent; border:1px solid var(--border); color:var(--muted);"
-              >✕</button
-            >
-          </form>
+          {#if !data.group.archived}
+            {#if e.archived}
+              <form method="POST" action="?/restoreExpense" use:enhance>
+                <input type="hidden" name="expenseId" value={e.id} />
+                <button
+                  type="submit"
+                  title="Restore"
+                  style="width:auto; margin:0; padding:6px 10px; background:transparent; border:1px solid var(--border); color:var(--muted);"
+                  >↩</button
+                >
+              </form>
+            {:else}
+              <form method="POST" action="?/archiveExpense" use:enhance>
+                <input type="hidden" name="expenseId" value={e.id} />
+                <button
+                  type="submit"
+                  title="Archive"
+                  style="width:auto; margin:0; padding:6px 10px; background:transparent; border:1px solid var(--border); color:var(--muted);"
+                  >✕</button
+                >
+              </form>
+            {/if}
+          {/if}
         </span>
       </div>
     {/each}
@@ -144,6 +171,7 @@
   </div>
 {/if}
 
+{#if !data.group.archived}
 <h2>Invite housemates</h2>
 <div class="card">
   <p class="muted" style="margin-top:0;">Anyone with this link can join the group.</p>
@@ -152,6 +180,20 @@
     <button type="button" class="btn-ghost" on:click={() => copy(data.inviteUrl)}>Copy</button>
   </div>
 </div>
+{/if}
+
+{#if data.group.archived}
+  <h2>Restore</h2>
+  <div class="card">
+    <form method="POST" action="?/restoreGroup" use:enhance>
+      <p class="muted" style="margin-top:0;">
+        Bring this group back to active. All expenses, members and history are exactly as you
+        left them.
+      </p>
+      <button type="submit">Restore group</button>
+    </form>
+  </div>
+{/if}
 
 <h2 class="danger-heading">Danger zone</h2>
 <div class="card danger">
@@ -170,23 +212,22 @@
     <button type="submit" class="btn-ghost">Leave group</button>
   </form>
 
-  <hr style="border:none; border-top:1px solid var(--border); margin:18px 0;" />
+  {#if !data.group.archived}
+    <hr style="border:none; border-top:1px solid var(--border); margin:18px 0;" />
 
-  <form
-    method="POST"
-    action="?/deleteGroup"
-    use:enhance
-    on:submit={(e) => {
-      if (!confirm(`Permanently delete "${data.group.name}" and all its data?`)) e.preventDefault();
-    }}
-  >
-    <p class="muted" style="margin-top:0;">
-      Delete the group and <strong>all</strong> its expenses, members and history for everyone.
-      This cannot be undone.
-    </p>
-    <label for="confirmName">Type the group name to confirm</label>
-    <input id="confirmName" name="confirmName" placeholder={data.group.name} autocomplete="off" />
-    {#if form?.deleteError}<p class="error">{form.deleteError}</p>{/if}
-    <button type="submit" class="btn-danger">Delete this group</button>
-  </form>
+    <form
+      method="POST"
+      action="?/archiveGroup"
+      use:enhance
+      on:submit={(e) => {
+        if (!confirm(`Archive "${data.group.name}"? It becomes read-only but nothing is deleted — you can restore it anytime.`)) e.preventDefault();
+      }}
+    >
+      <p class="muted" style="margin-top:0;">
+        Archive the group for everyone. All expenses, members and history are kept and the group
+        becomes read-only. You can restore it at any time — nothing is ever deleted.
+      </p>
+      <button type="submit" class="btn-ghost">Archive this group</button>
+    </form>
+  {/if}
 </div>

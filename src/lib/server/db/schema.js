@@ -16,11 +16,15 @@ export const users = pgTable('users', {
 });
 
 // A household / shared-expense group.
+// archivedAt marks a soft-archive — the group and all its data stay intact, but
+// it drops out of everyone's active list and becomes read-only. Restoring just
+// clears the timestamp, so nothing is ever lost: archiving only reprioritizes.
 export const groups = pgTable('groups', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   // Shareable token used to build the invite link (/join/:inviteToken).
   inviteToken: text('invite_token').notNull().unique(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
 
@@ -48,6 +52,9 @@ export const members = pgTable(
 
 // A single expense paid by one member. Amounts are stored as integer cents
 // to avoid floating-point drift.
+// archivedAt marks a soft-archive — the expense and its shares stay, but stop
+// counting toward balances. Restoring just clears the timestamp: an expense is
+// never destroyed, only reprioritized out of the live total.
 export const expenses = pgTable(
   'expenses',
   {
@@ -60,6 +67,7 @@ export const expenses = pgTable(
       .references(() => members.id, { onDelete: 'restrict' }),
     description: text('description').notNull(),
     amountCents: integer('amount_cents').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => ({

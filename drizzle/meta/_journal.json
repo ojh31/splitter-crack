@@ -8,6 +8,20 @@
       "when": 1781224385049,
       "tag": "0000_bizarre_gabe_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781233049472,
+      "tag": "0001_perpetual_doctor_spectrum",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781233672329,
+      "tag": "0002_dashing_silverclaw",
+      "breakpoints": true
     }
   ]
 }

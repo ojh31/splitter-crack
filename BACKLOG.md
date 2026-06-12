@@ -20,7 +20,7 @@ Deferred features and ideas, not in v1 scope.
 - Groups, members, expenses, equal splits, settlements
 - Net-balance + greedy debt-simplification settle-up
 - Mobile-first UI
-- Group deletion (name-confirmed, cascades)
+- Group archiving (soft, reversible — no hard delete; data never lost)
 - Lightweight `users` table: one identity across many groups (still no passwords)
 - Multi-group landing list with per-group balance
 - Placeholder members (add by name, claim later via invite)

@@ -29,6 +29,25 @@
   </div>
 {/if}
 
+{#if data.archivedGroups.length > 0}
+  <h2 class="muted">Archived</h2>
+  <div class="card">
+    {#each data.archivedGroups as g}
+      <a class="row grouprow" href={`/g/${g.id}`}>
+        <span>
+          {g.name}<br />
+          <span class="muted">{g.memberCount} {g.memberCount === 1 ? 'member' : 'members'} · archived</span>
+        </span>
+        <span class={g.myBalanceCents > 0 ? 'pos' : g.myBalanceCents < 0 ? 'neg' : 'muted'}>
+          {#if g.myBalanceCents > 0}you're owed {money(g.myBalanceCents)}
+          {:else if g.myBalanceCents < 0}you owe {money(-g.myBalanceCents)}
+          {:else}settled{/if}
+        </span>
+      </a>
+    {/each}
+  </div>
+{/if}
+
 <h2>New group</h2>
 <form class="card" method="POST" action="?/create" use:enhance>
   <label for="groupName">Group name</label>
