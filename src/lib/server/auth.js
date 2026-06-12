@@ -13,24 +13,24 @@ function sign(value) {
   return crypto.createHmac('sha256', SECRET).update(value).digest('base64url');
 }
 
-/** Returns a signed cookie value of the form "<memberId>.<sig>". */
-export function makeSession(memberId) {
-  return `${memberId}.${sign(memberId)}`;
+/** Returns a signed cookie value of the form "<userId>.<sig>". */
+export function makeSession(userId) {
+  return `${userId}.${sign(userId)}`;
 }
 
-/** Verify a signed cookie value; returns memberId or null. */
+/** Verify a signed cookie value; returns userId or null. */
 export function readSession(cookieValue) {
   if (!cookieValue) return null;
   const idx = cookieValue.lastIndexOf('.');
   if (idx < 0) return null;
-  const memberId = cookieValue.slice(0, idx);
+  const userId = cookieValue.slice(0, idx);
   const sig = cookieValue.slice(idx + 1);
-  const expected = sign(memberId);
+  const expected = sign(userId);
   // Constant-time compare to avoid leaking signature via timing.
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  return memberId;
+  return userId;
 }
 
 export const cookieOptions = {

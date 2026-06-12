@@ -15,8 +15,13 @@ Deferred features and ideas, not in v1 scope.
 - [ ] Per-group spending charts
 - [ ] "Simplify debts" toggle (on by default) vs. raw who-owes-whom view
 
-## v1 scope (for reference)
+## Shipped
 - Magic-link entry via group invite, no passwords
 - Groups, members, expenses, equal splits, settlements
 - Net-balance + greedy debt-simplification settle-up
 - Mobile-first UI
+- Group deletion (name-confirmed, cascades)
+- Lightweight `users` table: one identity across many groups (still no passwords)
+- Multi-group landing list with per-group balance
+- Placeholder members (add by name, claim later via invite)
+- Soft-leave (`members.left_at`): keeps past balances, drops group from your list

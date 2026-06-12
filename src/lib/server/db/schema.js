@@ -7,6 +7,14 @@ import {
   index
 } from 'drizzle-orm/pg-core';
 
+// A person's identity across groups. No passwords — the loginToken is the
+// personal "magic link" and a user can belong to many groups via members.
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  loginToken: text('login_token').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
 // A household / shared-expense group.
 export const groups = pgTable('groups', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -16,8 +24,10 @@ export const groups = pgTable('groups', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
 
-// A person within a group. No global accounts in v1 — identity is the
-// per-member loginToken, which doubles as the personal "magic link".
+// A person within a group. userId links the member to a user identity;
+// a null userId is an unclaimed placeholder (added by name, not yet joined).
+// leftAt marks a soft-leave — the row stays so past expenses keep their
+// balances, but the member is excluded from new splits and group lists.
 export const members = pgTable(
   'members',
   {
@@ -25,12 +35,14 @@ export const members = pgTable(
     groupId: uuid('group_id')
       .notNull()
       .references(() => groups.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
-    loginToken: text('login_token').notNull().unique(),
+    leftAt: timestamp('left_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => ({
-    groupIdx: index('members_group_idx').on(t.groupId)
+    groupIdx: index('members_group_idx').on(t.groupId),
+    userIdx: index('members_user_idx').on(t.userId)
   })
 );
 

@@ -1,5 +1,5 @@
 {
-  "id": "1e8a8531-df8f-400d-beb9-77d5e221b690",
+  "id": "326605cc-ca31-41c0-ad72-2b2da11b9c4f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -234,17 +234,23 @@
           "primaryKey": false,
           "notNull": true
         },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "login_token": {
-          "name": "login_token",
-          "type": "text",
+        "left_at": {
+          "name": "left_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -269,6 +275,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "members_user_idx": {
+          "name": "members_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -284,18 +305,23 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "members_user_id_users_id_fk": {
+          "name": "members_user_id_users_id_fk",
+          "tableFrom": "members",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "members_login_token_unique": {
-          "name": "members_login_token_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "login_token"
-          ]
-        }
-      }
+      "uniqueConstraints": {}
     },
     "public.settlements": {
       "name": "settlements",
@@ -400,6 +426,44 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "login_token": {
+          "name": "login_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_login_token_unique": {
+          "name": "users_login_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "login_token"
+          ]
+        }
+      }
     }
   },
   "enums": {},

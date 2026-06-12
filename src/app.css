@@ -121,6 +121,14 @@ button,
   border-bottom: none;
 }
 
+.grouprow {
+  color: var(--text);
+  text-decoration: none;
+}
+.grouprow:active {
+  opacity: 0.6;
+}
+
 .pos {
   color: var(--good);
   font-variant-numeric: tabular-nums;
@@ -151,4 +159,22 @@ button,
   width: auto;
   margin-top: 0;
   white-space: nowrap;
+}
+
+.claimform {
+  margin: 8px 0 0;
+}
+.claimbtn {
+  margin-top: 0;
+}
+
+.danger-heading {
+  color: var(--bad);
+}
+.card.danger {
+  border-color: var(--bad);
+}
+.btn-danger {
+  background: var(--bad);
+  color: #2a0707;
 }

@@ -1,7 +1,8 @@
-import { and, eq, desc, inArray } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { db, schema } from '$lib/server/db/index.js';
-import { netBalances, simplifyDebts, equalShares } from '$lib/server/settle.js';
+import { simplifyDebts, equalShares } from '$lib/server/settle.js';
+import { loadGroupState } from '$lib/server/groups.js';
 
 // Parse a dollars string like "12.50" into integer cents. Returns null if invalid.
 function parseCents(raw) {
@@ -10,53 +11,52 @@ function parseCents(raw) {
   return Math.round(parseFloat(s) * 100);
 }
 
-async function requireMembership(locals, groupId) {
-  if (!locals.member || locals.member.groupId !== groupId) {
-    throw redirect(303, '/');
-  }
+// Return the caller's active member row for this group, or redirect home.
+async function requireMember(locals, groupId) {
+  if (!locals.user) throw redirect(303, '/');
+  const member = await db.query.members.findFirst({
+    where: and(
+      eq(schema.members.groupId, groupId),
+      eq(schema.members.userId, locals.user.id),
+      isNull(schema.members.leftAt)
+    )
+  });
+  if (!member) throw redirect(303, '/');
+  return member;
 }
 
 export async function load({ params, locals, url }) {
-  await requireMembership(locals, params.groupId);
-  const groupId = params.groupId;
-
+  const me = await requireMember(locals, params.groupId);
   const group = await db.query.groups.findFirst({
-    where: eq(schema.groups.id, groupId)
+    where: eq(schema.groups.id, params.groupId)
   });
   if (!group) throw error(404, 'Group not found');
 
-  const members = await db.query.members.findMany({
-    where: eq(schema.members.groupId, groupId)
-  });
-  const expenses = await db.query.expenses.findMany({
-    where: eq(schema.expenses.groupId, groupId),
-    orderBy: desc(schema.expenses.createdAt)
-  });
-  const expenseIds = expenses.map((e) => e.id);
-  const shares = expenseIds.length
-    ? await db.query.expenseShares.findMany({
-        where: inArray(schema.expenseShares.expenseId, expenseIds)
-      })
-    : [];
-  const settlements = await db.query.settlements.findMany({
-    where: eq(schema.settlements.groupId, groupId),
-    orderBy: desc(schema.settlements.createdAt)
-  });
-
+  const { members, expenses, settlements, balances } = await loadGroupState(group.id);
   const nameById = new Map(members.map((m) => [m.id, m.name]));
-  const balances = netBalances({ members, expenses, shares, settlements });
+
+  const active = members.filter((m) => !m.leftAt);
+  // Left members still appear in balances/settle-up while they owe or are owed.
+  const settleable = members.filter((m) => !m.leftAt || (balances.get(m.id) ?? 0) !== 0);
+
   const transfers = simplifyDebts(balances).map((t) => ({
-    ...t,
     fromName: nameById.get(t.fromId),
-    toName: nameById.get(t.toId)
+    toName: nameById.get(t.toId),
+    amountCents: t.amountCents
   }));
 
   return {
-    me: locals.member,
+    me: { id: me.id, name: me.name },
     group: { id: group.id, name: group.name },
     inviteUrl: `${url.origin}/join/${group.inviteToken}`,
-    myLoginUrl: `${url.origin}/login/${locals.member.loginToken}`,
-    members,
+    activeMembers: active.map((m) => ({ id: m.id, name: m.name, claimed: !!m.userId })),
+    settleMembers: settleable.map((m) => ({ id: m.id, name: m.name, left: !!m.leftAt })),
+    balances: settleable.map((m) => ({
+      id: m.id,
+      name: m.name,
+      left: !!m.leftAt,
+      cents: balances.get(m.id) ?? 0
+    })),
     expenses: expenses.map((e) => ({
       id: e.id,
       description: e.description,
@@ -69,18 +69,30 @@ export async function load({ params, locals, url }) {
       fromName: nameById.get(s.fromId),
       toName: nameById.get(s.toId)
     })),
-    balances: members.map((m) => ({
-      id: m.id,
-      name: m.name,
-      cents: balances.get(m.id) ?? 0
-    })),
     transfers
   };
 }
 
+async function activeMemberIds(groupId) {
+  const rows = await db.query.members.findMany({
+    where: and(eq(schema.members.groupId, groupId), isNull(schema.members.leftAt))
+  });
+  return new Set(rows.map((m) => m.id));
+}
+
 export const actions = {
+  addMember: async ({ request, params, locals }) => {
+    await requireMember(locals, params.groupId);
+    const form = await request.formData();
+    const name = String(form.get('name') ?? '').trim();
+    if (!name) return fail(400, { memberError: 'Enter a name.' });
+    // Placeholder: no userId until they claim it via the invite link.
+    await db.insert(schema.members).values({ groupId: params.groupId, name, userId: null });
+    return { memberAdded: true };
+  },
+
   addExpense: async ({ request, params, locals }) => {
-    await requireMembership(locals, params.groupId);
+    await requireMember(locals, params.groupId);
     const form = await request.formData();
     const description = String(form.get('description') ?? '').trim();
     const amountCents = parseCents(form.get('amount'));
@@ -92,13 +104,9 @@ export const actions = {
     if (participants.length === 0)
       return fail(400, { addError: 'Pick at least one person to split between.' });
 
-    // Validate all referenced members belong to this group.
-    const groupMembers = await db.query.members.findMany({
-      where: eq(schema.members.groupId, params.groupId)
-    });
-    const validIds = new Set(groupMembers.map((m) => m.id));
-    if (!validIds.has(paidById)) return fail(400, { addError: 'Unknown payer.' });
-    if (!participants.every((p) => validIds.has(p)))
+    const valid = await activeMemberIds(params.groupId);
+    if (!valid.has(paidById)) return fail(400, { addError: 'Unknown payer.' });
+    if (!participants.every((p) => valid.has(p)))
       return fail(400, { addError: 'Unknown participant.' });
 
     const cents = equalShares(amountCents, participants.length);
@@ -119,7 +127,7 @@ export const actions = {
   },
 
   settle: async ({ request, params, locals }) => {
-    await requireMembership(locals, params.groupId);
+    await requireMember(locals, params.groupId);
     const form = await request.formData();
     const fromId = String(form.get('fromId') ?? '');
     const toId = String(form.get('toId') ?? '');
@@ -130,30 +138,56 @@ export const actions = {
     if (!fromId || !toId || fromId === toId)
       return fail(400, { settleError: 'Pick two different people.' });
 
-    const groupMembers = await db.query.members.findMany({
+    // Settlements may involve a left member who still owes, so allow any member
+    // of this group (not just active ones).
+    const rows = await db.query.members.findMany({
       where: eq(schema.members.groupId, params.groupId)
     });
-    const validIds = new Set(groupMembers.map((m) => m.id));
-    if (!validIds.has(fromId) || !validIds.has(toId))
+    const valid = new Set(rows.map((m) => m.id));
+    if (!valid.has(fromId) || !valid.has(toId))
       return fail(400, { settleError: 'Unknown member.' });
 
-    await db.insert(schema.settlements).values({
-      groupId: params.groupId,
-      fromId,
-      toId,
-      amountCents
-    });
+    await db
+      .insert(schema.settlements)
+      .values({ groupId: params.groupId, fromId, toId, amountCents });
     return { settled: true };
   },
 
   deleteExpense: async ({ request, params, locals }) => {
-    await requireMembership(locals, params.groupId);
+    await requireMember(locals, params.groupId);
     const form = await request.formData();
     const expenseId = String(form.get('expenseId') ?? '');
-    // Cascade on expense_shares handles the child rows. Scope to group for safety.
     await db
       .delete(schema.expenses)
       .where(and(eq(schema.expenses.id, expenseId), eq(schema.expenses.groupId, params.groupId)));
     return { deleted: true };
+  },
+
+  leaveGroup: async ({ params, locals }) => {
+    const me = await requireMember(locals, params.groupId);
+    // Soft leave: keep the row so past expenses retain their balances.
+    await db
+      .update(schema.members)
+      .set({ leftAt: new Date() })
+      .where(eq(schema.members.id, me.id));
+    throw redirect(303, '/');
+  },
+
+  deleteGroup: async ({ request, params, locals }) => {
+    await requireMember(locals, params.groupId);
+    const form = await request.formData();
+    const confirmName = String(form.get('confirmName') ?? '').trim();
+
+    const group = await db.query.groups.findFirst({
+      where: eq(schema.groups.id, params.groupId)
+    });
+    if (!group) throw redirect(303, '/');
+    if (confirmName !== group.name) {
+      return fail(400, { deleteError: `Type the group name exactly ("${group.name}") to confirm.` });
+    }
+
+    // FK cascades on group_id remove members, expenses, shares and settlements.
+    await db.delete(schema.groups).where(eq(schema.groups.id, params.groupId));
+    throw redirect(303, '/');
   }
 };

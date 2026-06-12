@@ -1,13 +1,39 @@
+import { and, eq, isNull } from 'drizzle-orm';
 import { fail, redirect } from '@sveltejs/kit';
 import { db, schema } from '$lib/server/db/index.js';
-import { newToken, makeSession, SESSION_COOKIE, cookieOptions } from '$lib/server/auth.js';
+import { newToken } from '$lib/server/auth.js';
+import { ensureUser } from '$lib/server/session.js';
+import { loadGroupState } from '$lib/server/groups.js';
 
-export function load({ locals }) {
-  return { member: locals.member };
+export async function load({ locals, url }) {
+  if (!locals.user) return { groups: [], loginUrl: null };
+
+  // Active memberships only (not soft-left).
+  const memberships = await db.query.members.findMany({
+    where: and(eq(schema.members.userId, locals.user.id), isNull(schema.members.leftAt))
+  });
+
+  const groups = [];
+  for (const m of memberships) {
+    const group = await db.query.groups.findFirst({
+      where: eq(schema.groups.id, m.groupId)
+    });
+    if (!group) continue;
+    const { members, balances } = await loadGroupState(group.id);
+    groups.push({
+      id: group.id,
+      name: group.name,
+      memberCount: members.filter((x) => !x.leftAt).length,
+      myBalanceCents: balances.get(m.id) ?? 0
+    });
+  }
+  groups.sort((a, b) => a.name.localeCompare(b.name));
+
+  return { groups, loginUrl: `${url.origin}/login/${locals.user.loginToken}` };
 }
 
 export const actions = {
-  create: async ({ request, cookies }) => {
+  create: async ({ request, cookies, locals }) => {
     const form = await request.formData();
     const groupName = String(form.get('groupName') ?? '').trim();
     const yourName = String(form.get('yourName') ?? '').trim();
@@ -15,17 +41,15 @@ export const actions = {
       return fail(400, { error: 'Both a group name and your name are required.' });
     }
 
+    const user = await ensureUser(locals, cookies);
     const [group] = await db
       .insert(schema.groups)
       .values({ name: groupName, inviteToken: newToken() })
       .returning();
-
-    const [member] = await db
+    await db
       .insert(schema.members)
-      .values({ groupId: group.id, name: yourName, loginToken: newToken() })
-      .returning();
+      .values({ groupId: group.id, name: yourName, userId: user.id });
 
-    cookies.set(SESSION_COOKIE, makeSession(member.id), cookieOptions);
     throw redirect(303, `/g/${group.id}`);
   }
 };
