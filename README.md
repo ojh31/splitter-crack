@@ -16,6 +16,8 @@ Railway service.
 - **Add expenses** with equal splits; amounts stored as integer cents.
 - **Settle up** uses net balances + greedy debt simplification so the group
   clears in the fewest transfers.
+- **Weekly reminders** (opt-in) → add your email on the home page and a Monday
+  job emails you what you owe / are owed across your groups.
 
 See [BACKLOG.md](BACKLOG.md) for deferred features (multi-currency, recurring
 bills, real accounts, etc.).
@@ -70,3 +72,33 @@ Commit the generated migration files.
 > `ORIGIN` is required in production: adapter-node runs behind Railway's HTTPS
 > proxy, and SvelteKit rejects cross-site form POSTs unless it knows the real
 > origin.
+
+## Weekly email reminders
+
+Users opt in by saving an email on the home page (clearing it unsubscribes).
+A standalone job sends the digest:
+
+```bash
+npm run reminders:weekly
+```
+
+It reuses the same balance math as the app and only emails users who have an
+outstanding balance somewhere — settled users get nothing. Without
+`RESEND_API_KEY` set it runs read-only and just logs, which is handy for a dry run.
+
+To send for real, set two more variables (see [.env.example](.env.example)):
+
+- `RESEND_API_KEY` — from [resend.com/api-keys](https://resend.com/api-keys)
+- `EMAIL_FROM` — a verified sender, e.g. `Splitter <reminders@yourdomain.com>`
+
+### Scheduling on Railway
+
+Add a **second service** in the same Railway project, pointed at this repo, with:
+
+- **Cron Schedule**: `0 9 * * 1` (Mondays 09:00 UTC)
+- **Start Command**: `npm run reminders:weekly`
+- the same `DATABASE_URL`, `ORIGIN`, `RESEND_API_KEY`, and `EMAIL_FROM` variables
+  as the web service.
+
+Railway runs a cron service's start command on the schedule and lets it exit, so
+the script runs once per week and stops — no long-running process.

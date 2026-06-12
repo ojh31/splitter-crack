@@ -12,6 +12,9 @@ import {
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   loginToken: text('login_token').notNull().unique(),
+  // Optional — set when a user opts in to weekly email reminders. Null means no
+  // address on file, so the reminder job skips them.
+  email: text('email'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
 

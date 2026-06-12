@@ -10,7 +10,8 @@
     "start": "node build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node ./scripts/migrate.js",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "reminders:weekly": "node ./scripts/weekly-reminders.js"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",

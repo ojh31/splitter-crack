@@ -61,6 +61,28 @@
 </form>
 
 {#if data.loginUrl}
+  <h2>Weekly email reminders</h2>
+  <form class="card" method="POST" action="?/setEmail" use:enhance>
+    <p class="muted" style="margin-top:0;">
+      Get a Monday email summarizing what you owe and what you're owed across your groups.
+      Leave blank to turn reminders off.
+    </p>
+    <label for="email">Email</label>
+    <input
+      id="email"
+      name="email"
+      type="email"
+      placeholder="you@example.com"
+      autocomplete="email"
+      value={form?.email ?? data.email}
+    />
+    {#if form?.emailError}<p class="error">{form.emailError}</p>{/if}
+    {#if form?.emailSaved}
+      <p class="muted">{form.email ? 'Saved — reminders on.' : 'Saved — reminders off.'}</p>
+    {/if}
+    <button type="submit">Save</button>
+  </form>
+
   <h2>Sign in on another device</h2>
   <div class="card">
     <p class="muted" style="margin-top:0;">

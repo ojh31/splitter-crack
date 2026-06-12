@@ -36,8 +36,15 @@ export async function load({ locals, url }) {
   return {
     groups,
     archivedGroups,
+    email: locals.user.email ?? '',
     loginUrl: `${url.origin}/login/${locals.user.loginToken}`
   };
+}
+
+// Very light email-format sanity check. Real validation is the confirmation that
+// reminders actually arrive — we just reject obvious typos here.
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 export const actions = {
@@ -59,5 +66,22 @@ export const actions = {
       .values({ groupId: group.id, name: yourName, userId: user.id });
 
     throw redirect(303, `/g/${group.id}`);
+  },
+
+  setEmail: async ({ request, cookies, locals }) => {
+    const form = await request.formData();
+    const email = String(form.get('email') ?? '').trim().toLowerCase();
+    if (email && !looksLikeEmail(email)) {
+      return fail(400, { emailError: "That doesn't look like a valid email." });
+    }
+
+    const user = await ensureUser(locals, cookies);
+    // Empty string clears the address — i.e. unsubscribe from reminders.
+    await db
+      .update(schema.users)
+      .set({ email: email || null })
+      .where(eq(schema.users.id, user.id));
+
+    return { emailSaved: true, email };
   }
 };
