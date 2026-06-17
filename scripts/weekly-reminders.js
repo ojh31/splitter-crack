@@ -16,7 +16,7 @@ import postgres from 'postgres';
 
 import * as schema from '../src/lib/server/db/schema.js';
 import { netBalances, simplifyDebts } from '../src/lib/server/settle.js';
-import { sendEmail } from '../src/lib/server/email.js';
+import { sendEmail, verifyEmail } from '../src/lib/server/email.js';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -128,6 +128,19 @@ async function main() {
   });
   console.log(`[weekly] ${recipients.length} user(s) with an email on file.`);
 
+  // Probe SMTP up front so a connection/auth problem is reported once, clearly,
+  // instead of once per recipient after a long timeout.
+  const probe = await verifyEmail();
+  if (probe.skipped) {
+    console.log('[weekly] no SMTP credentials set — running in log-only mode.');
+  } else if (probe.ok) {
+    console.log('[weekly] SMTP connection verified.');
+  } else {
+    console.error(
+      `[weekly] SMTP verify FAILED — code=${probe.error?.code} command=${probe.error?.command}: ${probe.error?.message}`
+    );
+  }
+
   let sent = 0;
   let skipped = 0;
   for (const user of recipients) {
@@ -153,7 +166,9 @@ async function main() {
         console.log(`[weekly] would email ${user.email}:\n${text}\n`);
       }
     } catch (err) {
-      console.error(`[weekly] failed to email ${user.email}:`, err.message);
+      console.error(
+        `[weekly] failed to email ${user.email} — code=${err.code} command=${err.command}: ${err.message}`
+      );
     }
   }
   console.log(`[weekly] done — ${sent} sent, ${skipped} skipped (settled or no provider).`);

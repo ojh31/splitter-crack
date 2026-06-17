@@ -10,6 +10,9 @@
 //                         https://myaccount.google.com/apppasswords
 //   EMAIL_FROM          — optional display form, e.g. "Splitter <you@gmail.com>".
 //                         Defaults to GMAIL_USER.
+//   SMTP_PORT           — optional, 465 (default, implicit TLS) or 587 (STARTTLS).
+//   SMTP_HOST           — optional, defaults to smtp.gmail.com.
+//   EMAIL_DEBUG         — set to any value to print full SMTP conversation logs.
 //
 // If GMAIL_USER / GMAIL_APP_PASSWORD are unset we don't throw: we log and no-op,
 // so local dev and tests run without SMTP credentials configured.
@@ -22,11 +25,25 @@ function getTransport() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return null;
+
+  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const port = Number(process.env.SMTP_PORT || 465);
+  const debug = Boolean(process.env.EMAIL_DEBUG);
+
   _transport = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { user, pass }
+    host,
+    port,
+    secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS (secure:false)
+    auth: { user, pass },
+    // Force IPv4: container egress often has no IPv6 route, which otherwise makes
+    // the connection hang until timeout instead of connecting.
+    family: 4,
+    // Fail fast and loudly rather than the default ~2-minute hang.
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+    socketTimeout: 30_000,
+    logger: debug,
+    debug
   });
   return _transport;
 }
@@ -47,4 +64,20 @@ export async function sendEmail({ to, subject, html, text }) {
   const from = process.env.EMAIL_FROM || process.env.GMAIL_USER;
   const info = await transport.sendMail({ from, to, subject, html, text });
   return { sent: true, id: info.messageId };
+}
+
+/**
+ * Probe the SMTP connection/credentials without sending. Used by the reminder
+ * job at startup so connection problems surface clearly before the send loop.
+ * @returns {Promise<{ ok: boolean, skipped?: boolean, error?: Error }>}
+ */
+export async function verifyEmail() {
+  const transport = getTransport();
+  if (!transport) return { ok: false, skipped: true };
+  try {
+    await transport.verify();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
+  }
 }
