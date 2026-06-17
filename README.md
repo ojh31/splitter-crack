@@ -83,13 +83,18 @@ npm run reminders:weekly
 ```
 
 It reuses the same balance math as the app and only emails users who have an
-outstanding balance somewhere — settled users get nothing. Without
-`RESEND_API_KEY` set it runs read-only and just logs, which is handy for a dry run.
+outstanding balance somewhere — settled users get nothing. Without Gmail
+credentials set it runs read-only and just logs, which is handy for a dry run.
 
-To send for real, set two more variables (see [.env.example](.env.example)):
+Mail is sent through Gmail's SMTP server. To send for real, set these variables
+(see [.env.example](.env.example)):
 
-- `RESEND_API_KEY` — from [resend.com/api-keys](https://resend.com/api-keys)
-- `EMAIL_FROM` — a verified sender, e.g. `Splitter <reminders@yourdomain.com>`
+- `GMAIL_USER` — the Gmail address to send from, e.g. `you@gmail.com`
+- `GMAIL_APP_PASSWORD` — a 16-char Google [App Password](https://myaccount.google.com/apppasswords)
+  (requires 2-Step Verification; this is **not** your normal login password)
+- `EMAIL_FROM` — optional, e.g. `Splitter <you@gmail.com>` (defaults to `GMAIL_USER`)
+
+Gmail allows ~500 recipients/day on a free account, which is plenty here.
 
 ### Scheduling on Railway
 
@@ -97,8 +102,8 @@ Add a **second service** in the same Railway project, pointed at this repo, with
 
 - **Cron Schedule**: `0 9 * * 1` (Mondays 09:00 UTC)
 - **Start Command**: `npm run reminders:weekly`
-- the same `DATABASE_URL`, `ORIGIN`, `RESEND_API_KEY`, and `EMAIL_FROM` variables
-  as the web service.
+- the same `DATABASE_URL` and `ORIGIN` as the web service, plus `GMAIL_USER`,
+  `GMAIL_APP_PASSWORD`, and (optionally) `EMAIL_FROM`.
 
 Railway runs a cron service's start command on the schedule and lets it exit, so
 the script runs once per week and stops — no long-running process.
