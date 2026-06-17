@@ -18,26 +18,39 @@
 // so local dev and tests run without SMTP credentials configured.
 
 import nodemailer from 'nodemailer';
+import dns from 'node:dns/promises';
 
 let _transport;
-function getTransport() {
+async function getTransport() {
   if (_transport) return _transport;
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return null;
 
-  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const hostname = process.env.SMTP_HOST || 'smtp.gmail.com';
   const port = Number(process.env.SMTP_PORT || 465);
   const debug = Boolean(process.env.EMAIL_DEBUG);
+
+  // Resolve to an IPv4 address ourselves and connect to that literal IP. Container
+  // egress usually has no IPv6 route, and nodemailer's `family` option did not
+  // stop it from attempting the AAAA (IPv6) record. Pinning the IPv4 address with
+  // an explicit TLS servername keeps certificate validation against the hostname.
+  let host = hostname;
+  try {
+    const [ipv4] = await dns.resolve4(hostname);
+    if (ipv4) host = ipv4;
+  } catch {
+    // Leave host as the hostname; the verify step will surface any failure.
+  }
 
   _transport = nodemailer.createTransport({
     host,
     port,
     secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS (secure:false)
     auth: { user, pass },
-    // Force IPv4: container egress often has no IPv6 route, which otherwise makes
-    // the connection hang until timeout instead of connecting.
     family: 4,
+    name: hostname,
+    tls: { servername: hostname },
     // Fail fast and loudly rather than the default ~2-minute hang.
     connectionTimeout: 20_000,
     greetingTimeout: 20_000,
@@ -53,7 +66,7 @@ function getTransport() {
  * @returns {Promise<{ sent: boolean, skipped?: boolean, id?: string }>}
  */
 export async function sendEmail({ to, subject, html, text }) {
-  const transport = getTransport();
+  const transport = await getTransport();
   if (!transport) {
     console.warn(
       `[email] GMAIL_USER / GMAIL_APP_PASSWORD unset — skipping email to ${to} ("${subject}")`
@@ -72,7 +85,7 @@ export async function sendEmail({ to, subject, html, text }) {
  * @returns {Promise<{ ok: boolean, skipped?: boolean, error?: Error }>}
  */
 export async function verifyEmail() {
-  const transport = getTransport();
+  const transport = await getTransport();
   if (!transport) return { ok: false, skipped: true };
   try {
     await transport.verify();
