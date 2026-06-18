@@ -103,14 +103,50 @@
 {/if}
 
 <h2>People</h2>
-<div class="card">
+{#if data.group.archived}
+  <div class="card">
+    {#each data.activeMembers as m}
+      <div class="row">
+        <span>
+          {m.name}{m.id === data.me.id ? ' (you)' : ''}<br />
+          <span class="muted">{m.email || m.accountEmail || 'no contact email'}</span>
+        </span>
+        <span class="muted">{m.claimed ? 'joined' : 'not joined yet'}</span>
+      </div>
+    {/each}
+  </div>
+{:else}
   {#each data.activeMembers as m}
-    <div class="row">
-      <span>{m.name}{m.id === data.me.id ? ' (you)' : ''}</span>
-      <span class="muted">{m.claimed ? 'joined' : 'not joined yet'}</span>
-    </div>
+    <form class="card" method="POST" action="?/editMember" use:enhance>
+      <input type="hidden" name="memberId" value={m.id} />
+      <div class="row" style="margin-bottom:6px;">
+        <span class="field-label" style="margin:0;">
+          {m.id === data.me.id ? 'You' : m.name}
+        </span>
+        <span class="muted">{m.claimed ? 'joined' : 'not joined yet'}</span>
+      </div>
+
+      <label for={`name-${m.id}`}>Name</label>
+      <input id={`name-${m.id}`} name="name" value={m.name} autocomplete="off" />
+
+      <label for={`email-${m.id}`}>Contact email (for reminders)</label>
+      <input
+        id={`email-${m.id}`}
+        name="email"
+        type="email"
+        value={m.email}
+        placeholder={m.id === data.me.id && m.accountEmail
+          ? `account email: ${m.accountEmail}`
+          : 'email (optional)'}
+        autocomplete="off"
+      />
+
+      {#if form?.editId === m.id && form?.editError}<p class="error">{form.editError}</p>{/if}
+      {#if form?.editId === m.id && form?.memberEdited}<p class="muted">Saved.</p>{/if}
+      <button type="submit" class="btn-ghost">Save</button>
+    </form>
   {/each}
-</div>
+{/if}
 {#if !data.group.archived}
 <form class="card" method="POST" action="?/addMember" use:enhance>
   <label for="memberName">Add a person (they can claim their name later via the invite link)</label>

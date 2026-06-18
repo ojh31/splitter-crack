@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, inArray } from 'drizzle-orm';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { db, schema } from '$lib/server/db/index.js';
 import { simplifyDebts, equalShares } from '$lib/server/settle.js';
@@ -9,6 +9,11 @@ function parseCents(raw) {
   const s = String(raw ?? '').trim().replace(/[$,\s]/g, '');
   if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
   return Math.round(parseFloat(s) * 100);
+}
+
+// Light email sanity check — the real test is whether reminders arrive.
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 // Return the caller's active member row for this group, or redirect home.
@@ -57,11 +62,25 @@ export async function load({ params, locals, url }) {
     amountCents: t.amountCents
   }));
 
+  // Linked users' own emails, so the People editor can show an account email as a
+  // hint while still editing the per-member contact override.
+  const userIds = active.filter((m) => m.userId).map((m) => m.userId);
+  const linkedUsers = userIds.length
+    ? await db.query.users.findMany({ where: inArray(schema.users.id, userIds) })
+    : [];
+  const accountEmailById = new Map(linkedUsers.map((u) => [u.id, u.email]));
+
   return {
     me: { id: me.id, name: me.name },
     group: { id: group.id, name: group.name, archived: !!group.archivedAt },
     inviteUrl: `${url.origin}/join/${group.inviteToken}`,
-    activeMembers: active.map((m) => ({ id: m.id, name: m.name, claimed: !!m.userId })),
+    activeMembers: active.map((m) => ({
+      id: m.id,
+      name: m.name,
+      claimed: !!m.userId,
+      email: m.email ?? '',
+      accountEmail: (m.userId && accountEmailById.get(m.userId)) || ''
+    })),
     settleMembers: settleable.map((m) => ({ id: m.id, name: m.name, left: !!m.leftAt })),
     balances: settleable.map((m) => ({
       id: m.id,
@@ -108,6 +127,38 @@ export const actions = {
     // Placeholder: no userId until they claim it via the invite link.
     await db.insert(schema.members).values({ groupId: params.groupId, name, userId: null });
     return { memberAdded: true };
+  },
+
+  // Rename and/or set a contact email for any active member of the group — your
+  // own row or someone else's (including unclaimed placeholders).
+  editMember: async ({ request, params, locals }) => {
+    await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'memberError');
+    if (blocked) return blocked;
+    const form = await request.formData();
+    const memberId = String(form.get('memberId') ?? '');
+    const name = String(form.get('name') ?? '').trim();
+    const email = String(form.get('email') ?? '').trim().toLowerCase();
+
+    if (!name) return fail(400, { editError: 'Name cannot be empty.', editId: memberId });
+    if (email && !looksLikeEmail(email))
+      return fail(400, { editError: "That doesn't look like a valid email.", editId: memberId });
+
+    // Only active members of this group can be edited.
+    const member = await db.query.members.findFirst({
+      where: and(
+        eq(schema.members.id, memberId),
+        eq(schema.members.groupId, params.groupId),
+        isNull(schema.members.leftAt)
+      )
+    });
+    if (!member) return fail(400, { editError: 'Unknown member.', editId: memberId });
+
+    await db
+      .update(schema.members)
+      .set({ name, email: email || null }) // empty clears the contact override
+      .where(eq(schema.members.id, memberId));
+    return { memberEdited: true, editId: memberId };
   },
 
   addExpense: async ({ request, params, locals }) => {

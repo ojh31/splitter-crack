@@ -11,7 +11,7 @@
 // plain `node` without SvelteKit's $lib/$env aliases.
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { and, eq, isNull, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, isNull, inArray } from 'drizzle-orm';
 import postgres from 'postgres';
 
 import * as schema from '../src/lib/server/db/schema.js';
@@ -56,37 +56,50 @@ async function groupSettlement(groupId) {
   return { members, balances, transfers, nameById };
 }
 
-// Build the digest lines for one user across all their active, non-archived
-// groups. Returns [] when the user is settled everywhere.
-async function digestForUser(userId) {
-  const memberships = await db.query.members.findMany({
-    where: and(eq(schema.members.userId, userId), isNull(schema.members.leftAt))
+// Build per-recipient digests keyed by contact email. A member's effective email
+// is their per-member contact email, falling back to their linked account email,
+// so people added by name (with a contact email) are reminded too — not just
+// registered users. Members are grouped by email, so someone in several groups
+// gets one combined digest; recipients settled everywhere get nothing.
+// @returns {Promise<Map<string, { loginToken: string|null, sections: object[] }>>}
+async function buildDigestsByEmail() {
+  const users = await db.query.users.findMany();
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  const groups = await db.query.groups.findMany({
+    where: isNull(schema.groups.archivedAt)
   });
 
-  const sections = [];
-  for (const m of memberships) {
-    const group = await db.query.groups.findFirst({ where: eq(schema.groups.id, m.groupId) });
-    if (!group || group.archivedAt) continue;
+  const byEmail = new Map();
+  for (const group of groups) {
+    const { members, balances, transfers, nameById } = await groupSettlement(group.id);
+    for (const m of members) {
+      if (m.leftAt) continue; // active members only
+      const user = m.userId ? userById.get(m.userId) : null;
+      const email = (m.email || user?.email || '').trim().toLowerCase();
+      if (!email) continue;
 
-    const { balances, transfers, nameById } = await groupSettlement(group.id);
-    const net = balances.get(m.id) ?? 0;
-    if (net === 0) continue; // settled in this group
+      const net = balances.get(m.id) ?? 0;
+      if (net === 0) continue; // settled in this group
 
-    const youOwe = transfers
-      .filter((t) => t.fromId === m.id)
-      .map((t) => `you owe ${nameById.get(t.toId) ?? 'someone'} ${money(t.amountCents)}`);
-    const owedToYou = transfers
-      .filter((t) => t.toId === m.id)
-      .map((t) => `${nameById.get(t.fromId) ?? 'someone'} owes you ${money(t.amountCents)}`);
+      const oweLines = transfers
+        .filter((t) => t.fromId === m.id)
+        .map((t) => `you owe ${nameById.get(t.toId) ?? 'someone'} ${money(t.amountCents)}`);
+      const owedLines = transfers
+        .filter((t) => t.toId === m.id)
+        .map((t) => `${nameById.get(t.fromId) ?? 'someone'} owes you ${money(t.amountCents)}`);
 
-    sections.push({
-      groupId: group.id,
-      groupName: group.name,
-      net,
-      lines: [...youOwe, ...owedToYou]
-    });
+      let entry = byEmail.get(email);
+      if (!entry) {
+        entry = { loginToken: null, sections: [] };
+        byEmail.set(email, entry);
+      }
+      // Use a real sign-in link if this person has claimed an account.
+      if (!entry.loginToken && user?.loginToken) entry.loginToken = user.loginToken;
+      entry.sections.push({ groupName: group.name, net, lines: [...oweLines, ...owedLines] });
+    }
   }
-  return sections;
+  return byEmail;
 }
 
 function renderEmail(sections, loginUrl) {
@@ -123,37 +136,30 @@ function renderEmail(sections, loginUrl) {
 }
 
 async function main() {
-  const recipients = await db.query.users.findMany({
-    where: isNotNull(schema.users.email)
-  });
-  console.log(`[weekly] ${recipients.length} user(s) with an email on file.`);
-
-  // Probe SMTP up front so a connection/auth problem is reported once, clearly,
-  // instead of once per recipient after a long timeout.
+  // Probe the provider up front so a connection/auth problem is reported once,
+  // clearly, instead of once per recipient.
   const probe = await verifyEmail();
   if (probe.skipped) {
-    console.log('[weekly] no SMTP credentials set — running in log-only mode.');
+    console.log('[weekly] no email provider configured — running in log-only mode.');
   } else if (probe.ok) {
-    console.log('[weekly] SMTP connection verified.');
+    console.log('[weekly] email provider verified.');
   } else {
     console.error(
-      `[weekly] SMTP verify FAILED — code=${probe.error?.code} command=${probe.error?.command}: ${probe.error?.message}`
+      `[weekly] provider verify FAILED — code=${probe.error?.code} command=${probe.error?.command}: ${probe.error?.message}`
     );
   }
 
+  const digests = await buildDigestsByEmail();
+  console.log(`[weekly] ${digests.size} recipient(s) with an outstanding balance.`);
+
   let sent = 0;
   let skipped = 0;
-  for (const user of recipients) {
-    const sections = await digestForUser(user.id);
-    if (sections.length === 0) {
-      skipped++;
-      continue;
-    }
-    const loginUrl = origin ? `${origin}/login/${user.loginToken}` : '';
+  for (const [email, { loginToken, sections }] of digests) {
+    const loginUrl = origin && loginToken ? `${origin}/login/${loginToken}` : '';
     const { text, html } = renderEmail(sections, loginUrl);
     try {
       const result = await sendEmail({
-        to: user.email,
+        to: email,
         subject: 'Your weekly splitter summary',
         html,
         text
@@ -163,15 +169,15 @@ async function main() {
       } else {
         skipped++;
         // Dry run (no provider configured): show what would have gone out.
-        console.log(`[weekly] would email ${user.email}:\n${text}\n`);
+        console.log(`[weekly] would email ${email}:\n${text}\n`);
       }
     } catch (err) {
       console.error(
-        `[weekly] failed to email ${user.email} — code=${err.code} command=${err.command}: ${err.message}`
+        `[weekly] failed to email ${email} — code=${err.code} command=${err.command}: ${err.message}`
       );
     }
   }
-  console.log(`[weekly] done — ${sent} sent, ${skipped} skipped (settled or no provider).`);
+  console.log(`[weekly] done — ${sent} sent, ${skipped} skipped (no provider).`);
 }
 
 main()

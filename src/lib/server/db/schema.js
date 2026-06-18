@@ -44,6 +44,10 @@ export const members = pgTable(
       .references(() => groups.id, { onDelete: 'cascade' }),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
+    // Optional per-person contact email, settable by anyone in the group — so
+    // placeholders (and people who never set their own) can still be reminded.
+    // For reminders this overrides the linked user's own email when present.
+    email: text('email'),
     leftAt: timestamp('left_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
