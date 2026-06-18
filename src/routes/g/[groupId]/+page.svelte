@@ -113,10 +113,10 @@
 </div>
 {#if !data.group.archived}
 <form class="card" method="POST" action="?/addMember" use:enhance>
-  <label for="memberName">Add a housemate (they can claim their name later via the invite link)</label>
+  <label for="memberName">Add a person (they can claim their name later via the invite link)</label>
   <input id="memberName" name="name" placeholder="Sam" autocomplete="off" />
   {#if form?.memberError}<p class="error">{form.memberError}</p>{/if}
-  <button type="submit" class="btn-ghost">Add housemate</button>
+  <button type="submit" class="btn-ghost">Add person</button>
 </form>
 {/if}
 
@@ -172,7 +172,7 @@
 {/if}
 
 {#if !data.group.archived}
-<h2>Invite housemates</h2>
+<h2>Invite people</h2>
 <div class="card">
   <p class="muted" style="margin-top:0;">Anyone with this link can join the group.</p>
   <div class="linkbox">

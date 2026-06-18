@@ -7,7 +7,7 @@
     (cents < 0 ? '-' : '') + '$' + (Math.abs(cents) / 100).toFixed(2);
 </script>
 
-<h1>Split bills with your housemates</h1>
+<h1>Split bills with your group</h1>
 <p class="muted">Create a group, share the invite link, and let everyone log expenses. No passwords.</p>
 
 {#if data.groups.length > 0}
