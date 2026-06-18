@@ -51,7 +51,8 @@
 </div>
 
 {#if !data.group.archived}
-<h2>Add expense</h2>
+<details class="collapsible">
+<summary>Add expense</summary>
 <form class="card" method="POST" action="?/addExpense" use:enhance>
   <label for="description">Description</label>
   <input id="description" name="description" placeholder="Groceries" autocomplete="off" />
@@ -77,8 +78,10 @@
   {#if form?.addError}<p class="error">{form.addError}</p>{/if}
   <button type="submit">Add expense</button>
 </form>
+</details>
 
-<h2>Record a payment</h2>
+<details class="collapsible">
+<summary>Record a payment</summary>
 <form class="card" method="POST" action="?/settle" use:enhance>
   <label for="fromId">From</label>
   <select id="fromId" name="fromId">
@@ -100,9 +103,11 @@
   {#if form?.settleError}<p class="error">{form.settleError}</p>{/if}
   <button type="submit">Record payment</button>
 </form>
+</details>
 {/if}
 
-<h2>People</h2>
+<details class="collapsible">
+<summary>People</summary>
 {#if data.group.archived}
   <div class="card">
     {#each data.activeMembers as m}
@@ -147,13 +152,17 @@
     </form>
   {/each}
 {/if}
+</details>
 {#if !data.group.archived}
+<details class="collapsible">
+<summary>Add a person</summary>
 <form class="card" method="POST" action="?/addMember" use:enhance>
   <label for="memberName">Add a person (they can claim their name later via the invite link)</label>
   <input id="memberName" name="name" placeholder="Sam" autocomplete="off" />
   {#if form?.memberError}<p class="error">{form.memberError}</p>{/if}
   <button type="submit" class="btn-ghost">Add person</button>
 </form>
+</details>
 {/if}
 
 <h2>Expenses</h2>
