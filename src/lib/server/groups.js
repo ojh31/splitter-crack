@@ -5,8 +5,9 @@ import { netBalances } from '$lib/server/settle.js';
 /**
  * Load a group's members and all financial rows, and compute net balances.
  * Balances include left members, since their past expenses still affect who
- * owes whom until settled. Archived expenses (and their shares) are returned
- * for display but excluded from the balance math — they no longer count.
+ * owes whom until settled. Archived expenses (and their shares) and archived
+ * settlements are returned for display but excluded from the balance math —
+ * they no longer count.
  * @returns {Promise<{ members, expenses, shares, settlements, balances: Map<string, number> }>}
  */
 export async function loadGroupState(groupId) {
@@ -33,11 +34,13 @@ export async function loadGroupState(groupId) {
   const liveExpenses = expenses.filter((e) => !e.archivedAt);
   const liveExpenseIds = new Set(liveExpenses.map((e) => e.id));
   const liveShares = shares.filter((s) => liveExpenseIds.has(s.expenseId));
+  // Likewise, only live settlements move money in the balance math.
+  const liveSettlements = settlements.filter((s) => !s.archivedAt);
   const balances = netBalances({
     members,
     expenses: liveExpenses,
     shares: liveShares,
-    settlements
+    settlements: liveSettlements
   });
   return { members, expenses, shares, settlements, balances };
 }

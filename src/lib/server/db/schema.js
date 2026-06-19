@@ -102,6 +102,9 @@ export const expenseShares = pgTable(
 );
 
 // A recorded payment from one member to another to clear debt.
+// archivedAt marks a soft-archive — the payment stays on record but stops
+// counting toward balances. Restoring just clears the timestamp: a payment is
+// never destroyed, only reprioritized out of the live total.
 export const settlements = pgTable(
   'settlements',
   {
@@ -116,6 +119,7 @@ export const settlements = pgTable(
       .notNull()
       .references(() => members.id, { onDelete: 'restrict' }),
     amountCents: integer('amount_cents').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => ({

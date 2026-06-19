@@ -99,12 +99,17 @@ export async function load({ params, locals, url }) {
         archived: !!e.archivedAt
       }))
       .sort((a, b) => Number(a.archived) - Number(b.archived)),
-    settlements: settlements.map((s) => ({
-      id: s.id,
-      amountCents: s.amountCents,
-      fromName: nameById.get(s.fromId),
-      toName: nameById.get(s.toId)
-    })),
+    // Live payments first, archived ones reprioritized to the bottom — kept
+    // visible, just no longer counted.
+    settlements: settlements
+      .map((s) => ({
+        id: s.id,
+        amountCents: s.amountCents,
+        fromName: nameById.get(s.fromId),
+        toName: nameById.get(s.toId),
+        archived: !!s.archivedAt
+      }))
+      .sort((a, b) => Number(a.archived) - Number(b.archived)),
     transfers
   };
 }
@@ -252,6 +257,43 @@ export const actions = {
       .set({ archivedAt: null })
       .where(and(eq(schema.expenses.id, expenseId), eq(schema.expenses.groupId, params.groupId)));
     return { expenseRestored: true };
+  },
+
+  archiveSettlement: async ({ request, params, locals }) => {
+    await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'settleError');
+    if (blocked) return blocked;
+    const form = await request.formData();
+    const settlementId = String(form.get('settlementId') ?? '');
+    // Soft-archive: the payment stays on record, it just stops counting.
+    await db
+      .update(schema.settlements)
+      .set({ archivedAt: new Date() })
+      .where(
+        and(
+          eq(schema.settlements.id, settlementId),
+          eq(schema.settlements.groupId, params.groupId)
+        )
+      );
+    return { settlementArchived: true };
+  },
+
+  restoreSettlement: async ({ request, params, locals }) => {
+    await requireMember(locals, params.groupId);
+    const blocked = await archivedGuard(params.groupId, 'settleError');
+    if (blocked) return blocked;
+    const form = await request.formData();
+    const settlementId = String(form.get('settlementId') ?? '');
+    await db
+      .update(schema.settlements)
+      .set({ archivedAt: null })
+      .where(
+        and(
+          eq(schema.settlements.id, settlementId),
+          eq(schema.settlements.groupId, params.groupId)
+        )
+      );
+    return { settlementRestored: true };
   },
 
   leaveGroup: async ({ params, locals }) => {

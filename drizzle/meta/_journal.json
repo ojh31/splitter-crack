@@ -36,6 +36,13 @@
       "when": 1781745160151,
       "tag": "0004_perpetual_zombie",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781822503119,
+      "tag": "0005_magenta_krista_starr",
+      "breakpoints": true
     }
   ]
 }

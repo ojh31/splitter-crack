@@ -208,9 +208,34 @@
   <h2>Payment history</h2>
   <div class="card">
     {#each data.settlements as s}
-      <div class="row">
-        <span>{s.fromName} → {s.toName}</span>
-        <span class="amt">{money(s.amountCents)}</span>
+      <div class="row" class:archived-expense={s.archived}>
+        <span>{s.fromName} → {s.toName}{s.archived ? ' (archived)' : ''}</span>
+        <span style="display:flex; align-items:center; gap:12px;">
+          <span class="amt">{money(s.amountCents)}</span>
+          {#if !data.group.archived}
+            {#if s.archived}
+              <form method="POST" action="?/restoreSettlement" use:enhance>
+                <input type="hidden" name="settlementId" value={s.id} />
+                <button
+                  type="submit"
+                  title="Restore"
+                  style="width:auto; margin:0; padding:6px 10px; background:transparent; border:1px solid var(--border); color:var(--muted);"
+                  >↩</button
+                >
+              </form>
+            {:else}
+              <form method="POST" action="?/archiveSettlement" use:enhance>
+                <input type="hidden" name="settlementId" value={s.id} />
+                <button
+                  type="submit"
+                  title="Archive"
+                  style="width:auto; margin:0; padding:6px 10px; background:transparent; border:1px solid var(--border); color:var(--muted);"
+                  >✕</button
+                >
+              </form>
+            {/if}
+          {/if}
+        </span>
       </div>
     {/each}
   </div>
