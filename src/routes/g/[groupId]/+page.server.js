@@ -62,6 +62,8 @@ export async function load({ params, locals, url }) {
   const settleable = members.filter((m) => !m.leftAt || (balances.get(m.id) ?? 0) !== 0);
 
   const transfers = simplifyDebts(balances).map((t) => ({
+    fromId: t.fromId,
+    toId: t.toId,
     fromName: nameById.get(t.fromId),
     toName: nameById.get(t.toId),
     amountCents: t.amountCents

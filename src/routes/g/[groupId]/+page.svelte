@@ -13,6 +13,32 @@
     return { update: (v) => (node.defaultSelected = v) };
   }
 
+  // Record-a-payment prefill: From starts as you; To and Amount follow the
+  // settle-up transfer for that person, recomputed whenever balances change.
+  let fromId = data.me.id;
+  let toId = '';
+  let settleAmount = '';
+
+  function transferAmount(from, to) {
+    const t = data.transfers.find((t) => t.fromId === from && t.toId === to);
+    return t ? (t.amountCents / 100).toFixed(2) : '';
+  }
+
+  function suggestPayment(from) {
+    const t = data.transfers.find((t) => t.fromId === from);
+    toId = t ? t.toId : (data.settleMembers.find((m) => m.id !== from)?.id ?? '');
+    settleAmount = transferAmount(from, toId);
+  }
+
+  $: suggestPayment(fromId);
+  // Identity check, not a plain dependency: select bindings invalidate `data`
+  // on every change, which would otherwise clobber a manually picked To.
+  let seenTransfers = data.transfers;
+  $: if (data.transfers !== seenTransfers) {
+    seenTransfers = data.transfers;
+    suggestPayment(fromId);
+  }
+
   function copy(text) {
     navigator.clipboard?.writeText(text);
   }
@@ -89,23 +115,42 @@
 
 <details class="collapsible">
 <summary>Record a payment</summary>
-<form class="card" method="POST" action="?/settle" use:enhance>
+<form
+  class="card"
+  method="POST"
+  action="?/settle"
+  use:enhance={() =>
+    // No reset: the fields are bound, and the prefill recomputes from new balances.
+    async ({ update }) => update({ reset: false })}
+>
   <label for="fromId">From</label>
-  <select id="fromId" name="fromId">
+  <select id="fromId" name="fromId" bind:value={fromId}>
     {#each data.settleMembers as m}
-      <option value={m.id} selected={m.id === data.me.id} use:defaultSelected={m.id === data.me.id}>{m.name}{m.left ? ' (left)' : ''}</option>
+      <option value={m.id}>{m.name}{m.left ? ' (left)' : ''}</option>
     {/each}
   </select>
 
   <label for="toId">To</label>
-  <select id="toId" name="toId">
+  <select
+    id="toId"
+    name="toId"
+    bind:value={toId}
+    on:change={(e) => (settleAmount = transferAmount(fromId, e.currentTarget.value))}
+  >
     {#each data.settleMembers as m}
       <option value={m.id}>{m.name}{m.left ? ' (left)' : ''}</option>
     {/each}
   </select>
 
   <label for="settleAmount">Amount ($)</label>
-  <input id="settleAmount" name="amount" inputmode="decimal" placeholder="10.00" autocomplete="off" />
+  <input
+    id="settleAmount"
+    name="amount"
+    inputmode="decimal"
+    placeholder="10.00"
+    autocomplete="off"
+    bind:value={settleAmount}
+  />
 
   {#if form?.settleError}<p class="error">{form.settleError}</p>{/if}
   <button type="submit">Record payment</button>
