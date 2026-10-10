@@ -49,8 +49,13 @@ export async function load({ params, locals, url }) {
   });
   if (!group) throw error(404, 'Group not found');
 
-  const { members, expenses, settlements, balances } = await loadGroupState(group.id);
+  const { members, expenses, shares, settlements, balances } = await loadGroupState(group.id);
   const nameById = new Map(members.map((m) => [m.id, m.name]));
+
+  // My share of each expense, so the history can show what each one means for me.
+  const myShareByExpense = new Map(
+    shares.filter((s) => s.memberId === me.id).map((s) => [s.expenseId, s.shareCents])
+  );
 
   const active = members.filter((m) => !m.leftAt);
   // Left members still appear in balances/settle-up while they owe or are owed.
@@ -96,6 +101,12 @@ export async function load({ params, locals, url }) {
         description: e.description,
         amountCents: e.amountCents,
         paidByName: nameById.get(e.paidById),
+        // Positive = I'm owed this much from the expense; negative = I owe it.
+        // Null when I neither paid nor shared in it.
+        myNetCents:
+          e.paidById === me.id || myShareByExpense.has(e.id)
+            ? (e.paidById === me.id ? e.amountCents : 0) - (myShareByExpense.get(e.id) ?? 0)
+            : null,
         archived: !!e.archivedAt
       }))
       .sort((a, b) => Number(a.archived) - Number(b.archived)),

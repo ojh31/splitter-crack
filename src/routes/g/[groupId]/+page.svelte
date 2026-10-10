@@ -6,6 +6,13 @@
   const money = (cents) =>
     (cents < 0 ? '-' : '') + '$' + (Math.abs(cents) / 100).toFixed(2);
 
+  // Svelte sets `selected` as a property, which form.reset() (run by enhance
+  // after a successful submit) ignores. defaultSelected is what reset restores.
+  function defaultSelected(node, on) {
+    node.defaultSelected = on;
+    return { update: (v) => (node.defaultSelected = v) };
+  }
+
   function copy(text) {
     navigator.clipboard?.writeText(text);
   }
@@ -63,7 +70,7 @@
   <label for="paidById">Paid by</label>
   <select id="paidById" name="paidById">
     {#each data.activeMembers as m}
-      <option value={m.id} selected={m.id === data.me.id}>{m.name}</option>
+      <option value={m.id} selected={m.id === data.me.id} use:defaultSelected={m.id === data.me.id}>{m.name}</option>
     {/each}
   </select>
 
@@ -86,7 +93,7 @@
   <label for="fromId">From</label>
   <select id="fromId" name="fromId">
     {#each data.settleMembers as m}
-      <option value={m.id} selected={m.id === data.me.id}>{m.name}{m.left ? ' (left)' : ''}</option>
+      <option value={m.id} selected={m.id === data.me.id} use:defaultSelected={m.id === data.me.id}>{m.name}{m.left ? ' (left)' : ''}</option>
     {/each}
   </select>
 
@@ -172,7 +179,17 @@
   {:else}
     {#each data.expenses as e}
       <div class="row" class:archived-expense={e.archived}>
-        <span>{e.description}{e.archived ? ' (archived)' : ''}<br /><span class="muted">paid by {e.paidByName}</span></span>
+        <span>{e.description}{e.archived ? ' (archived)' : ''}<br /><span class="muted">paid by {e.paidByName}</span>
+          {#if e.myNetCents === null}
+            <br /><span class="muted">you're not in this one</span>
+          {:else if e.myNetCents > 0}
+            <br /><span class="pos">you're owed {money(e.myNetCents)}</span>
+          {:else if e.myNetCents < 0}
+            <br /><span class="neg">you owe {money(-e.myNetCents)}</span>
+          {:else}
+            <br /><span class="muted">you're even on this one</span>
+          {/if}
+        </span>
         <span style="display:flex; align-items:center; gap:12px;">
           <span class="amt">{money(e.amountCents)}</span>
           {#if !data.group.archived}
